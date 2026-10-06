@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>聲動花園 | Sonic Bloom Garden</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;900&display=swap');
+        
+        body {
+            font-family: 'Nunito', sans-serif;
+            margin: 0;
+            overflow: hidden;
+            touch-action: none; /* 防止移動端預設滾動，利於拖曳 */
+            transition: background 1s ease-in-out;
+        }
+
+        /* 日/夜背景圖層 */
+        .bg-day {
+            background: linear-gradient(to bottom, #7dd3fc 0%, #bae6fd 50%, #dcfce3 100%);
+        }
+        .bg-night {
+            background: linear-gradient(to bottom, #0f172a 0%, #1e1b4b 50%, #064e3b 100%);
+        }
+
+        /* 拖曳元件樣式 */
+        #watering-can {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            cursor: grab;
+            z-index: 50;
+            filter: drop-shadow(0 10px 8px rgba(0,0,0,0.3));
+            transition: transform 0.1s;
+            user-select: none;
+            -webkit-user-drag: none;
+        }
+        #watering-can:active {
+            cursor: grabbing;
+            transform: scale(0.95) rotate(-15deg);
+        }
+
+        /* UI 面板玻璃質感 */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+        }
+        
+        .night-mode .glass-panel {
+            background: rgba(15, 23, 42, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #f1f5f9;
+        }
+
+        /* 音量條動畫 */
+        #volume-fill {
+            transition: width 0.05s linear, background-color 0.2s ease;
+        }
+        
+        /* 隱藏捲軸 */
+        ::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="bg-day w-full h-screen relative" id="main-body">
+
+    <!-- Canvas 畫布圖層 -->
+    <canvas id="gardenCanvas" class="absolute inset-0 w-full h-full z-10"></canvas>
+
+    <!-- 拖曳元件：魔法澆水壺 -->
+    <div id="watering-can" style="left: calc(100vw - 120px); top: 50px;">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M19.5 12.5C19.5 12.5 21 11 21 8.5C21 6 18 5.5 18 5.5C18 5.5 17 8.5 13 8.5C9 8.5 7 6 7 6L5.5 10L3 9L2 11.5L6 14C6 14 7.5 21 14 21C20.5 21 19.5 12.5 19.5 12.5Z" fill="#38BDF8" stroke="#0284C7" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M7 6C7 6 7 2 11 2C15 2 15 4 15 4" stroke="#0284C7" stroke-width="1.5" stroke-linecap="round"/>
+            <circle cx="2" cy="15" r="1" fill="#BAE6FD"/>
+            <circle cx="4" cy="17" r="1" fill="#BAE6FD"/>
+            <circle cx="2" cy="19" r="1" fill="#BAE6FD"/>
+        </svg>
+    </div>
+
+    <!-- UI 控制面板 -->
+    <div class="absolute top-4 left-4 w-72 md:w-80 glass-panel rounded-2xl p-5 z-40 flex flex-col gap-5 transition-colors duration-500" id="ui-panel">
+        
+        <div>
+            <h1 class="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-violet-500 mb-1">聲動花園</h1>
+            <p class="text-xs text-gray-500 dark:text-gray-400" id="status-text">等待互動中...</p>
+        </div>
+
+        <!-- 麥克風控制與即時回饋 -->
+        <div class="space-y-2">
+            <button id="micBtn" class="w-full py-2.5 bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white rounded-xl font-bold shadow-md active:scale-95 transition-all flex items-center justify-center gap-2">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+                <span id="micBtnText">啟用麥克風</span>
+            </button>
+            
+            <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden shadow-inner">
+                <div id="volume-fill" class="bg-emerald-400 h-3 rounded-full" style="width: 0%"></div>
+            </div>
+        </div>
+
+        <!-- 滑桿：靈敏度 -->
+        <div class="space-y-1">
+            <div class="flex justify-between text-sm font-bold text-gray-700 dark:text-gray-300">
+                <span>聲音靈敏度</span>
+                <span id="sensValue">50%</span>
+            </div>
+            <input type="range" id="sensitivity" min="1" max="100" value="50" class="w-full accent-purple-500">
+        </div>
+
+        <!-- 圖層切換 -->
+        <div class="space-y-2">
+            <h3 class="text-sm font-bold text-gray-700 dark:text-gray-300 border-b border-gray-300/50 pb-1">圖層切換</h3>
+            <label class="flex items-center gap-2 cursor-pointer text-sm font-semibold text-gray-600 dark:text-gray-400">
+                <input type="checkbox" id="layer-night" class="w-4 h-4 rounded text-purple-600 focus:ring-purple-500"> 夜間模式
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer text-sm font-semibold text-gray-600 dark:text-gray-400">
+                <input type="checkbox" id="layer-particles" class="w-4 h-4 rounded text-purple-600 focus:ring-purple-500" checked> 環境粒子 (螢火蟲/花粉)
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer text-sm font-semibold text-gray-600 dark:text-gray-400">
+                <input type="checkbox" id="layer-debug" class="w-4 h-4 rounded text-purple-600 focus:ring-purple-500"> 輔助資訊 (數值框)
+            </label>
+        </div>
+
+        <!-- 模擬按鈕 -->
+        <div class="space-y-2">
+            <h3 class="text-sm font-bold text-gray-700 dark:text-gray-300 border-b border-gray-300/50 pb-1">模擬動作</h3>
+            <div class="flex gap-2">
+                <button id="simSoundBtn" class="flex-1 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-lg text-sm font-bold active:scale-95 transition-all">大聲歡呼</button>
+                <button id="simRainBtn" class="flex-1 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-lg text-sm font-bold active:scale-95 transition-all">春雨降臨</button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 自訂訊息提示框 -->
+    <div id="toast" class="fixed top-5 left-1/2 -translate-x-1/2 bg-black/80 text-white px-6 py-3 rounded-full font-bold shadow-xl z-50 transform -translate-y-20 opacity-0 transition-all duration-300">
+        訊息提示
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gardenCanvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+
+        // 系統狀態
+        const state = {
+            audioCtx: null,
+            analyser: null,
+            dataArray: null,
+            microphoneStream: null,
+            isMicActive: false,
+            currentVolume: 0,
+            simulatedVolume: 0,
+            sensitivity: 1.5,
+            layers: {
+                night: false,
+                particles: true,
+                debug: false
+            },
+            isRaining: false
+        };
+
+        // 顯示提示訊息
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.innerText = msg;
+            toast.style.transform = 'translate(-50%, 0)';
+            toast.style.opacity = '1';
+            setTimeout(() => {
+                toast.style.transform = 'translate(-50%, -100px)';
+                toast.style.opacity = '0';
+            }, 3000);
+        }
+
+        // 更新 Canvas 尺寸
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            initGarden(); // 重新初始化花園位置
+        }
+        window.addEventListener('resize', resize);
+
+        
+        // --- 粒子系統 (雨滴/花粉/水滴) ---
+        let particles = [];
+        class Particle {
+            constructor(x, y, type) {
+                this.x = x;
+                this.y = y;
+                this.type = type; // 'pollen', 'firefly', 'water', 'rain'
+                this.size = Math.random() * 3 + 1;
+                this.vx = (Math.random() - 0.5) * 2;
+                this.vy = type === 'rain' || type === 'water' ? Math.random() * 5 + 5 : (Math.random() - 0.5) * 2;
+                this.life = 100;
+                this.maxLife = 100;
+                this.color = type === 'firefly' ? `hsl(60, 100%, 70%)` : 
+                             type === 'pollen' ? `hsl(${Math.random()*60+30}, 100%, 70%)` : 
+                             `hsl(190, 100%, 70%)`;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                if(this.type === 'pollen' || this.type === 'firefly') {
+                    this.x += Math.sin(Date.now() / 500 + this.y) * 1;
+                    this.vy -= 0.05; // 微微往上飄
+                } else if(this.type === 'water' || this.type === 'rain') {
+                    this.vy += 0.2; // 重力
+                }
+                this.life -= (this.type === 'rain' ? 0.5 : 1);
+            }
+            draw(ctx) {
+                ctx.globalAlpha = Math.max(0, this.life / this.maxLife);
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                if(this.type === 'firefly') {
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = this.color;
+                }
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        // --- 花朵類別 ---
+        let flowers = [];
+        class Flower {
+            constructor(x) {
+                this.baseX = x;
+                this.x = x;
+                this.y = height; // 從底部長出
+                
+                // 外觀設定
+                this.hue = Math.random() * 360;
+                this.petalCount = Math.floor(Math.random() * 6) + 5; // 5~10 片花瓣
+                this.size = Math.random() * 15 + 20; // 基礎大小
+                this.stemThickness = Math.random() * 4 + 4;
+                
+                // 動態參數
+                this.baseHeight = Math.random() * (height * 0.2) + (height * 0.1); // 最低高度
+                this.maxHeight = this.baseHeight + Math.random() * (height * 0.4) + 150; // 最高高度
+                this.currentHeight = this.baseHeight;
+                this.targetHeight = this.baseHeight;
+                
+                this.rotation = 0;
+                this.rotationSpeed = 0.01;
+                this.swayPhase = Math.random() * Math.PI * 2;
+                
+                // 被澆水狀態
+                this.wateredBoost = 0; 
+            }
+
+            update(volume) {
+                // 1. 計算目標高度：基於音量 + 澆水增幅
+                // 聲音越大，花朵越接近 maxHeight
+                let soundFactor = Math.min(volume * state.sensitivity, 1);
+                this.targetHeight = this.baseHeight + (this.maxHeight - this.baseHeight) * soundFactor + this.wateredBoost;
+                
+                // 平滑過渡當前高度到目標高度 (Easing)
+                this.currentHeight += (this.targetHeight - this.currentHeight) * 0.05;
+
+                // 2. 搖擺效果 (受聲音和自然風影響)
+                let wind = Math.sin(Date.now() / 1000 + this.swayPhase) * 20;
+                let soundSway = (Math.random() - 0.5) * soundFactor * 50;
+                this.x = this.baseX + wind + soundSway;
+
+                // 3. 花瓣旋轉 (聲音越大轉越快)
+                this.rotationSpeed = 0.01 + (soundFactor * 0.2);
+                this.rotation += this.rotationSpeed;
+
+                // 4. 隨機產生花粉
+                if (soundFactor > 0.6 && Math.random() < 0.1 && state.layers.particles) {
+                    particles.push(new Particle(this.x, height - this.currentHeight, 'pollen'));
+                }
+
+                // 澆水效果衰減
+                if (this.wateredBoost > 0) {
+                    this.wateredBoost *= 0.98;
+                }
+            }
+
+            draw(ctx) {
+                const headY = height - this.currentHeight;
+
+                // --- 畫莖 ---
+                ctx.beginPath();
+                ctx.moveTo(this.baseX, height);
+                // 使用貝茲曲線產生彎曲的莖
+                ctx.quadraticCurveTo(this.baseX, height - this.currentHeight/2, this.x, headY);
+                ctx.strokeStyle = state.layers.night ? '#064e3b' : '#15803d'; // 根據日夜改變綠色
+                ctx.lineWidth = this.stemThickness + (this.currentHeight / this.maxHeight) * 5; // 長高變粗
+                ctx.lineCap = 'round';
+                ctx.stroke();
+
+                // --- 畫葉子 ---
+                ctx.save();
+                ctx.translate(this.baseX + (this.x - this.baseX)*0.5, height - this.currentHeight*0.5);
+                ctx.beginPath();
+                ctx.ellipse(-15, 0, 20, 8, -Math.PI/4, 0, Math.PI*2);
+                ctx.ellipse(15, 0, 20, 8, Math.PI/4, 0, Math.PI*2);
+                ctx.fillStyle = state.layers.night ? '#047857' : '#22c55e';
+                ctx.fill();
+                ctx.restore();
+
+                // --- 畫花瓣 ---
+                ctx.save();
+                ctx.translate(this.x, headY);
+                ctx.rotate(this.rotation);
+                
+                // 動態大小，長得越高花朵越大
+                let scale = 0.8 + (this.currentHeight / this.maxHeight) * 0.7;
+                ctx.scale(scale, scale);
+
+                for (let i = 0; i < this.petalCount; i++) {
+                    ctx.rotate((Math.PI * 2) / this.petalCount);
+                    ctx.beginPath();
+                    // 繪製橢圓花瓣
+                    ctx.ellipse(0, this.size, this.size * 0.4, this.size, 0, 0, Math.PI * 2);
+                    
+                    // 動態色彩：聲音大時顏色更鮮豔發亮
+                    let lightness = state.layers.night ? 40 : 60;
+                    if(this.currentHeight > this.baseHeight + 50) lightness += 20;
+                    
+                    ctx.fillStyle = `hsla(${this.hue}, 90%, ${lightness}%, 0.8)`;
+                    ctx.fill();
+                    ctx.strokeStyle = `hsla(${this.hue}, 90%, 30%, 0.5)`;
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+
+                // --- 花蕊 ---
+                ctx.beginPath();
+                ctx.arc(0, 0, this.size * 0.5, 0, Math.PI * 2);
+                ctx.fillStyle = '#fef08a'; // 黃色花蕊
+                ctx.fill();
+                ctx.restore();
+
+                // --- Debug 圖層資訊 ---
+                if (state.layers.debug) {
+                    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                    ctx.fillRect(this.x - 30, headY - 80, 60, 40);
+                    ctx.fillStyle = 'white';
+                    ctx.font = '10px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(`H: ${Math.round(this.currentHeight)}`, this.x, headY - 65);
+                    ctx.fillText(`C: ${this.petalCount}`, this.x, headY - 50);
+                }
+            }
+        }
+
+        // 初始化花園
+        function initGarden() {
+            flowers = [];
+            const spacing = Math.min(width / 6, 120); // 決定花的密度
+            const numFlowers = Math.floor(width / spacing);
+            const startX = (width - (numFlowers - 1) * spacing) / 2;
+
+            for (let i = 0; i < numFlowers; i++) {
+                // 稍微加入隨機偏移，看起來更自然
+                let xPos = startX + i * spacing + (Math.random() * 40 - 20);
+                flowers.push(new Flower(xPos));
+            }
+        }
+
+        async function startMic() {
+            try {
+                if (state.isMicActive) {
+                    // 關閉麥克風
+                    state.microphoneStream.getTracks().forEach(track => track.stop());
+                    state.audioCtx.close();
+                    state.isMicActive = false;
+                    document.getElementById('micBtnText').innerText = "啟用麥克風";
+                    document.getElementById('micBtn').classList.replace('from-red-500', 'from-indigo-500');
+                    document.getElementById('micBtn').classList.replace('to-pink-500', 'to-purple-500');
+                    document.getElementById('status-text').innerText = "麥克風已關閉";
+                    showToast("已關閉麥克風輸入");
+                    return;
+                }
+
+                // 請求權限
+                document.getElementById('status-text').innerText = "請求麥克風權限中...";
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                
+                state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                state.analyser = state.audioCtx.createAnalyser();
+                state.analyser.fftSize = 256;
+                state.dataArray = new Uint8Array(state.analyser.frequencyBinCount);
+                
+                const source = state.audioCtx.createMediaStreamSource(stream);
+                source.connect(state.analyser);
+                
+                state.microphoneStream = stream;
+                state.isMicActive = true;
+                
+                // UI 更新
+                document.getElementById('micBtnText').innerText = "關閉麥克風";
+                document.getElementById('micBtn').classList.replace('from-indigo-500', 'from-red-500');
+                document.getElementById('micBtn').classList.replace('to-purple-500', 'to-pink-500');
+                document.getElementById('status-text').innerText = "正在接收聲音訊號 🎵";
+                showToast("麥克風連接成功！試著發出聲音吧！");
+
+            } catch (err) {
+                console.error("麥克風錯誤:", err);
+                document.getElementById('status-text').innerText = "無法存取麥克風";
+                showToast("麥克風存取失敗，請確認瀏覽器權限設置。您可以使用模擬按鈕體驗。");
+            }
+        }
+
+        // 取得當前音量 (0.0 ~ 1.0)
+        function getAudioVolume() {
+            if (state.isMicActive && state.analyser) {
+                state.analyser.getByteFrequencyData(state.dataArray);
+                let sum = 0;
+                // 計算所有頻段的平均值 (RMS)
+                for (let i = 0; i < state.dataArray.length; i++) {
+                    sum += state.dataArray[i];
+                }
+                let avg = sum / state.dataArray.length;
+                return avg / 255; // 歸一化
+            }
+            return 0;
+        }
+
+        const wateringCan = document.getElementById('watering-can');
+        let isDragging = false;
+        let dragOffset = { x: 0, y: 0 };
+
+        function onDragStart(e) {
+            isDragging = true;
+            // 處理滑鼠或觸控事件
+            const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+            const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+            
+            const rect = wateringCan.getBoundingClientRect();
+            dragOffset.x = clientX - rect.left;
+            dragOffset.y = clientY - rect.top;
+            
+            wateringCan.style.transition = 'none'; // 拖曳時取消過渡動畫使跟隨更緊密
+        }
+
+        function onDragMove(e) {
+            if (!isDragging) return;
+            e.preventDefault(); // 防止手機端滑動頁面
+            
+            const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+            const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+            
+            const newX = clientX - dragOffset.x;
+            const newY = clientY - dragOffset.y;
+            
+            wateringCan.style.left = `${newX}px`;
+            wateringCan.style.top = `${newY}px`;
+
+            // 產生水滴粒子
+            if (Math.random() < 0.3) {
+                particles.push(new Particle(newX + 10, newY + 60, 'water'));
+            }
+
+            // 碰撞偵測：如果水壺在花朵上方，讓該花朵生長
+            const potCenterX = newX + 40;
+            const potBottomY = newY + 80;
+            
+            flowers.forEach(flower => {
+                const flowerHeadY = height - flower.currentHeight;
+                // 如果距離夠近
+                if (Math.abs(flower.x - potCenterX) < 60 && (flowerHeadY - potBottomY) > 0 && (flowerHeadY - potBottomY) < 200) {
+                    flower.wateredBoost = 100; // 給予暫時的生長加成
+                }
+            });
+        }
+
+        function onDragEnd() {
+            isDragging = false;
+            wateringCan.style.transition = 'transform 0.1s, top 0.5s ease, left 0.5s ease';
+            // 放開後讓水壺自動彈回原位(右上角)
+            wateringCan.style.left = `calc(100vw - 120px)`;
+            wateringCan.style.top = `50px`;
+        }
+
+        // 綁定拖曳事件 (滑鼠 & 觸控)
+        wateringCan.addEventListener('mousedown', onDragStart);
+        window.addEventListener('mousemove', onDragMove);
+        window.addEventListener('mouseup', onDragEnd);
+        
+        wateringCan.addEventListener('touchstart', onDragStart, {passive: false});
+        window.addEventListener('touchmove', onDragMove, {passive: false});
+        window.addEventListener('touchend', onDragEnd);
+
+        document.getElementById('micBtn').addEventListener('click', startMic);
+
+        // 靈敏度滑桿
+        document.getElementById('sensitivity').addEventListener('input', (e) => {
+            const val = e.target.value;
+            state.sensitivity = val / 25; // 轉換為乘數 (0.04 ~ 4.0)
+            document.getElementById('sensValue').innerText = val + '%';
+        });
+
+        // 圖層切換：夜間模式
+        document.getElementById('layer-night').addEventListener('change', (e) => {
+            state.layers.night = e.target.checked;
+            const body = document.getElementById('main-body');
+            const panel = document.getElementById('ui-panel');
+            if (state.layers.night) {
+                body.classList.replace('bg-day', 'bg-night');
+                panel.parentElement.classList.add('night-mode');
+            } else {
+                body.classList.replace('bg-night', 'bg-day');
+                panel.parentElement.classList.remove('night-mode');
+            }
+        });
+
+        // 圖層切換：粒子與Debug
+        document.getElementById('layer-particles').addEventListener('change', (e) => { state.layers.particles = e.target.checked; });
+        document.getElementById('layer-debug').addEventListener('change', (e) => { state.layers.debug = e.target.checked; });
+
+        // 模擬聲音按鈕
+        document.getElementById('simSoundBtn').addEventListener('click', () => {
+            state.simulatedVolume = 1.0; // 瞬間最大聲
+            showToast("模擬：大聲歡呼！");
+        });
+
+        // 模擬下雨按鈕
+        document.getElementById('simRainBtn').addEventListener('click', () => {
+            state.isRaining = true;
+            showToast("模擬：春雨降臨！花朵開始生長");
+            
+            // 給所有花朵澆水增幅
+            flowers.forEach(f => f.wateredBoost = 150);
+
+            // 產生大量雨滴
+            for(let i=0; i<100; i++) {
+                particles.push(new Particle(Math.random() * width, Math.random() * -height, 'rain'));
+            }
+
+            setTimeout(() => { state.isRaining = false; }, 2000);
+        });
+
+        function animate() {
+            // 清除畫布
+            ctx.clearRect(0, 0, width, height);
+
+            // 取得音量：真實麥克風 或 模擬音量
+            let realVol = getAudioVolume();
+            
+            // 處理模擬音量衰減
+            if (state.simulatedVolume > 0) {
+                state.simulatedVolume *= 0.9; // 快速衰減
+                if(state.simulatedVolume < 0.01) state.simulatedVolume = 0;
+            }
+            
+            // 最終計算音量取兩者最大值
+            state.currentVolume = Math.max(realVol, state.simulatedVolume);
+
+            // 更新 UI 音量條顏色與長度
+            const volBar = document.getElementById('volume-fill');
+            const volPercent = Math.min(state.currentVolume * state.sensitivity * 100, 100);
+            volBar.style.width = `${volPercent}%`;
+            if (volPercent > 80) volBar.style.backgroundColor = '#ef4444'; // 紅
+            else if (volPercent > 50) volBar.style.backgroundColor = '#eab308'; // 黃
+            else volBar.style.backgroundColor = '#34d399'; // 綠
+
+            // 背景粒子 (螢火蟲)
+            if (state.layers.night && state.layers.particles && Math.random() < 0.05) {
+                particles.push(new Particle(Math.random() * width, height - Math.random() * height * 0.5, 'firefly'));
+            }
+
+            // 更新並繪製所有粒子
+            if (state.layers.particles || state.isRaining) {
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    let p = particles[i];
+                    p.update();
+                    p.draw(ctx);
+                    if (p.life <= 0 || p.y > height) {
+                        particles.splice(i, 1);
+                    }
+                }
+            } else {
+                particles = []; // 關閉圖層時清空粒子
+            }
+
+            // 更新並繪製花朵
+            flowers.forEach(flower => {
+                flower.update(state.currentVolume);
+                flower.draw(ctx);
+            });
+
+            // Debug 圖層：全局音量資訊
+            if (state.layers.debug) {
+                ctx.fillStyle = 'black';
+                ctx.fillRect(width - 160, 10, 150, 60);
+                ctx.fillStyle = 'lime';
+                ctx.font = '12px Courier';
+                ctx.textAlign = 'left';
+                ctx.fillText(`Raw Vol: ${realVol.toFixed(3)}`, width - 150, 30);
+                ctx.fillText(`Final Vol: ${state.currentVolume.toFixed(3)}`, width - 150, 45);
+                ctx.fillText(`Particles: ${particles.length}`, width - 150, 60);
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // 啟動程式
+        resize(); // 設定初始尺寸並建立花園
+        animate(); // 啟動渲染迴圈
+
+    </script>
+</body>
+</html>
